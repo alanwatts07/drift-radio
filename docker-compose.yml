@@ -1,0 +1,23 @@
+services:
+  icecast:
+    image: moul/icecast
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./icecast.xml:/etc/icecast.xml
+    restart: unless-stopped
+
+  liquidsoap:
+    image: savonet/liquidsoap:v2.2.5
+    volumes:
+      - ./liquidsoap:/etc/liquidsoap
+      - ./music:/music
+      - ./music_beds:/music_beds
+      - ./segments:/segments
+    ports:
+      - "1234:1234"   # telnet API
+      - "8005:8005"   # BUTT/harbor input
+    depends_on:
+      - icecast
+    command: ["/etc/liquidsoap/radio.liq"]
+    restart: unless-stopped

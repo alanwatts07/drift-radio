@@ -1,0 +1,9 @@
+.env
+segments/
+logs/
+__pycache__/
+*.pyc
+.spotify_cache
+*.mp3
+!music_beds/.gitkeep
+!music/.gitkeep

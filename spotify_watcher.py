@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""
+Spotify watcher — track change detection + playback state.
+Provides remaining time so scheduler can queue segments at the right moment.
+"""
+
+import time
+import logging
+import os
+from dataclasses import dataclass
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
+
+import config
+
+log = logging.getLogger(__name__)
+
+SCOPE = "user-read-playback-state user-read-currently-playing"
+
+
+@dataclass
+class Track:
+    artist: str
+    title: str
+    uri: str
+    duration_ms: int
+
+    def __str__(self):
+        return f"{self.artist} - {self.title}"
+
+    def __eq__(self, other):
+        return isinstance(other, Track) and self.uri == other.uri
+
+
+@dataclass
+class PlaybackState:
+    track: Track | None
+    progress_ms: int
+    is_playing: bool
+
+    @property
+    def remaining_ms(self) -> int:
+        if self.track is None:
+            return 0
+        return max(0, self.track.duration_ms - self.progress_ms)
+
+    @property
+    def remaining_s(self) -> float:
+        return self.remaining_ms / 1000
+
+
+def _make_sp() -> spotipy.Spotify:
+    return spotipy.Spotify(
+        auth_manager=SpotifyOAuth(
+            client_id=os.getenv("SPOTIFY_CLIENT_ID"),
+            client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
+            redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback"),
+            scope=SCOPE,
+            cache_path=".spotify_cache",
+        )
+    )
+
+
+def get_playback(sp: spotipy.Spotify) -> PlaybackState:
+    try:
+        pb = sp.current_playback()
+        if not pb or not pb.get("item"):
+            return PlaybackState(track=None, progress_ms=0, is_playing=False)
+        item = pb["item"]
+        artist = item["artists"][0]["name"] if item.get("artists") else "Unknown"
+        track = Track(
+            artist=artist,
+            title=item["name"],
+            uri=item["uri"],
+            duration_ms=item["duration_ms"],
+        )
+        return PlaybackState(
+            track=track,
+            progress_ms=pb.get("progress_ms", 0),
+            is_playing=pb.get("is_playing", False),
+        )
+    except Exception as e:
+        log.warning(f"[spotify] playback fetch failed: {e}")
+        return PlaybackState(track=None, progress_ms=0, is_playing=False)
+
+
+def watch(on_track_change, stop_event=None):
+    """
+    Poll Spotify every SPOTIFY_POLL_INTERVAL seconds.
+    Calls on_track_change(prev_track, new_track, sp) on track change.
+    sp is passed so the callback can poll remaining time.
+    """
+    sp = _make_sp()
+    state = get_playback(sp)
+    current = state.track
+    log.info(f"[spotify] watching — current: {current}")
+
+    while True:
+        if stop_event and stop_event.is_set():
+            break
+
+        time.sleep(config.SPOTIFY_POLL_INTERVAL)
+
+        state = get_playback(sp)
+        new = state.track
+
+        if new and new != current:
+            prev = current
+            current = new
+            log.info(f"[spotify] track changed: {prev} → {current}")
+            try:
+                on_track_change(prev, current, sp)
+            except Exception as e:
+                log.error(f"[spotify] on_track_change error: {e}")
+        elif new is None and current is not None:
+            log.debug("[spotify] playback stopped")
+            current = None
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+
+    def on_change(prev, curr, sp):
+        print(f"Track change: {prev} → {curr}")
+        state = get_playback(sp)
+        print(f"Remaining: {state.remaining_s:.1f}s")
+
+    watch(on_change)
