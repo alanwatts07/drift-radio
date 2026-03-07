@@ -15,8 +15,7 @@ segments = request.queue(id="segments")
 # Spotify passthrough via BUTT → harbor input
 spotify = input.harbor(
   "spotify",
-  port=8005,
-  auth=fun(_, _) -> true
+  port=8005
 )
 
 # Local music fallback
@@ -37,8 +36,8 @@ radio = fallback(
   ]
 )
 
-# Crossfade between tracks
-radio = crossfade(radio)
+# Make infallible (silence if all sources empty)
+radio = mksafe(radio)
 
 # --- Output to Icecast ---
 output.icecast(

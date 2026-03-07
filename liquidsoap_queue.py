@@ -9,13 +9,19 @@ import config
 log = logging.getLogger(__name__)
 
 
+HOST_SEGMENTS_DIR = "/home/morpheus/Hackstuff/drift-radio/segments"
+CONTAINER_SEGMENTS_DIR = "/segments"
+
+
 def push_segment(path: str | Path) -> bool:
     """Push a segment file to Liquidsoap's request queue. Returns True on success."""
     path = Path(path).resolve()
+    # Remap host path to container path
+    path_str = str(path).replace(HOST_SEGMENTS_DIR, CONTAINER_SEGMENTS_DIR)
     host, port = config.LIQUIDSOAP_TELNET
     try:
         with socket.create_connection((host, port), timeout=5) as sock:
-            sock.sendall(f"segments.push {path}\n".encode())
+            sock.sendall(f"segments.push {path_str}\n".encode())
             response = b""
             sock.settimeout(3)
             try:

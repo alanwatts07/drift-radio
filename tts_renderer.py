@@ -3,6 +3,7 @@
 
 import sys
 import os
+import subprocess
 from pathlib import Path
 from openai import OpenAI
 import config
@@ -21,7 +22,22 @@ def render(text: str, output_path: str | Path) -> Path:
         input=text,
         speed=config.TTS_SPEED,
     )
-    response.stream_to_file(str(output_path))
+    tmp_path = output_path.with_suffix(".mono.mp3")
+    response.stream_to_file(str(tmp_path))
+
+    # Convert mono → stereo, normalize loudness to broadcast level (-14 LUFS)
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-i", str(tmp_path),
+            "-ac", "2",
+            "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
+            "-b:a", "192k",
+            str(output_path),
+        ],
+        check=True, capture_output=True,
+    )
+    tmp_path.unlink(missing_ok=True)
+
     print(f"[tts] rendered → {output_path}")
     return output_path
 
