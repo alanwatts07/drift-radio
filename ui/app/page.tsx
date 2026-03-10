@@ -7,7 +7,7 @@ import StreamPlayer from "./components/StreamPlayer";
 import ListenerCount from "./components/ListenerCount";
 import SearchBar from "./components/SearchBar";
 import Queue, { type QueueTrack } from "./components/Queue";
-import { getNowPlaying, getStatus, getQueue, type SearchTrack } from "@/lib/api";
+import { getNowPlaying, getStatus, getQueue, getMode, type SearchTrack } from "@/lib/api";
 
 export default function Home() {
   const [np, setNp] = useState({
@@ -21,6 +21,11 @@ export default function Home() {
   const [listeners, setListeners] = useState(0);
   const [queue, setQueue] = useState<QueueTrack[]>([]);
   const [queuedBy, setQueuedBy] = useState<Map<string, string>>(new Map());
+  const [mode, setModeState] = useState("jukebox");
+
+  useEffect(() => {
+    getMode().then((r) => setModeState(r.mode)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     getNowPlaying().then(setNp).catch(() => {});
@@ -64,7 +69,16 @@ export default function Home() {
         <h1 className="text-xl font-bold tracking-tight">
           <span style={{ color: "var(--accent)" }}>FTR</span> — Fun Time Radio
         </h1>
-        <ListenerCount count={listeners} />
+        <div className="flex items-center gap-3">
+          <span className="text-xs px-2 py-0.5 rounded-full" style={{
+            background: mode === "ai-dj" ? "var(--accent)" : "var(--surface)",
+            color: mode === "ai-dj" ? "var(--background)" : "var(--muted)",
+            border: mode === "ai-dj" ? "none" : "1px solid var(--border)",
+          }}>
+            {mode === "ai-dj" ? "AI DJ" : "Jukebox"}
+          </span>
+          <ListenerCount count={listeners} />
+        </div>
       </header>
 
       <AlbumArt src={np.album_art || null} playing={np.playing} />

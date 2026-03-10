@@ -19,9 +19,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Add drift-radio to path so we can reuse tts_renderer + liquidsoap_queue
+# Add drift-radio engine to path so we can reuse tts_renderer + liquidsoap_queue
 DRIFT_RADIO_DIR = os.getenv("DRIFT_RADIO_DIR", "/home/morpheus/Hackstuff/drift-radio")
-sys.path.insert(0, DRIFT_RADIO_DIR)
+ENGINE_DIR = os.path.join(DRIFT_RADIO_DIR, "engine")
+sys.path.insert(0, ENGINE_DIR)
+sys.path.insert(0, DRIFT_RADIO_DIR)  # fallback for old layout
 import tts_renderer
 import liquidsoap_queue
 
@@ -331,6 +333,54 @@ async def spotify_stats():
         "rate_limits_hit": len(_rate_limit_log),
         "rate_limit_events": _rate_limit_log[-10:],  # last 10 events
     }
+
+
+# --- Mode (jukebox vs ai-dj) ---
+
+_radio_mode = {"mode": "jukebox"}  # "jukebox" or "ai-dj"
+_scheduler_proc = None
+
+
+@app.get("/mode")
+async def get_mode():
+    """Get current radio mode."""
+    return _radio_mode
+
+
+class ModeRequest(BaseModel):
+    mode: str
+
+
+@app.post("/mode")
+async def set_radio_mode(body: ModeRequest, _=Depends(require_bartender)):
+    """Switch between jukebox (music only) and ai-dj (segments between songs)."""
+    global _scheduler_proc
+    if body.mode not in ("jukebox", "ai-dj"):
+        raise HTTPException(status_code=400, detail="Mode must be 'jukebox' or 'ai-dj'")
+
+    _radio_mode["mode"] = body.mode
+
+    if body.mode == "ai-dj":
+        # Start the scheduler if not running
+        if _scheduler_proc is None or _scheduler_proc.poll() is not None:
+            scheduler_path = Path(DRIFT_RADIO_DIR) / "engine" / "scheduler.py"
+            if scheduler_path.exists():
+                _scheduler_proc = subprocess.Popen(
+                    [sys.executable, str(scheduler_path)],
+                    cwd=str(scheduler_path.parent),
+                )
+                log.info(f"[mode] Started AI DJ scheduler (pid={_scheduler_proc.pid})")
+            else:
+                log.warning(f"[mode] Scheduler not found at {scheduler_path}")
+    else:
+        # Kill the scheduler if running
+        if _scheduler_proc and _scheduler_proc.poll() is None:
+            _scheduler_proc.terminate()
+            log.info("[mode] Stopped AI DJ scheduler")
+            _scheduler_proc = None
+
+    log.info(f"[mode] Switched to {body.mode}")
+    return _radio_mode
 
 
 @app.get("/status")

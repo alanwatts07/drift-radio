@@ -69,6 +69,23 @@ export async function announceRaw(text: string, password: string): Promise<void>
   });
 }
 
+export async function getMode(): Promise<{ mode: string }> {
+  const res = await fetch(`${API}/mode`);
+  return res.json();
+}
+
+export async function setMode(mode: "jukebox" | "ai-dj", password: string): Promise<{ mode: string }> {
+  const res = await fetch(`${API}/mode`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-password": password,
+    },
+    body: JSON.stringify({ mode }),
+  });
+  return res.json();
+}
+
 export async function announceAI(prompt: string, password: string): Promise<AnnounceResult> {
   const res = await fetch(`${API}/announce/ai`, {
     method: "POST",

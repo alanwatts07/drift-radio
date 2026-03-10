@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { announceRaw, announceAI } from "@/lib/api";
+import { announceRaw, announceAI, getMode, setMode } from "@/lib/api";
 
 const QUICK_BUTTONS = [
   "Happy hour starts now",
@@ -18,6 +18,7 @@ export default function BartenderPage() {
   const [status, setStatus] = useState("");
   const [aiScript, setAiScript] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mode, setModeState] = useState("jukebox");
 
   useEffect(() => {
     const saved = sessionStorage.getItem("ftr-password");
@@ -30,6 +31,17 @@ export default function BartenderPage() {
   function handleLogin() {
     sessionStorage.setItem("ftr-password", password);
     setAuthed(true);
+    getMode().then((r) => setModeState(r.mode)).catch(() => {});
+  }
+
+  async function toggleMode() {
+    const next = mode === "jukebox" ? "ai-dj" : "jukebox";
+    try {
+      const r = await setMode(next as "jukebox" | "ai-dj", password);
+      setModeState(r.mode);
+    } catch {
+      setStatus("Error switching mode");
+    }
   }
 
   async function handleRaw(msg?: string) {
@@ -94,6 +106,20 @@ export default function BartenderPage() {
       <h1 className="text-2xl font-bold">
         <span style={{ color: "var(--accent)" }}>FTR</span> Bartender
       </h1>
+
+      {/* Mode Toggle */}
+      <button
+        onClick={toggleMode}
+        className="w-full py-3 rounded-xl font-semibold text-sm min-h-[44px] flex items-center justify-center gap-3 transition-colors"
+        style={{
+          background: mode === "ai-dj" ? "var(--accent)" : "var(--surface)",
+          color: mode === "ai-dj" ? "var(--background)" : "var(--foreground)",
+          border: mode === "ai-dj" ? "none" : "1px solid var(--border)",
+        }}
+      >
+        <span className="w-2 h-2 rounded-full" style={{ background: mode === "ai-dj" ? "var(--background)" : "var(--accent)" }} />
+        {mode === "ai-dj" ? "AI DJ Mode — segments between songs" : "Jukebox Mode — music only"}
+      </button>
 
       <div className="flex gap-2">
         {(["raw", "ai"] as const).map((t) => (
