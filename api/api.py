@@ -330,24 +330,38 @@ async def get_queue():
 
 @app.get("/spotify/stats")
 async def spotify_stats():
-    """Spotify API usage stats and rate limit history."""
+    """Spotify API usage stats and rate limit history — API + scheduler combined."""
     now = _time.time()
-    calls_1m = sum(1 for t, _ in _api_calls if now - t < 60)
-    calls_10m = sum(1 for t, _ in _api_calls if now - t < 600)
-    calls_1h = len(_api_calls)
+    api_1m = sum(1 for t, _ in _api_calls if now - t < 60)
+    api_10m = sum(1 for t, _ in _api_calls if now - t < 600)
+    api_1h = len(_api_calls)
 
-    # Breakdown by endpoint
-    endpoint_counts = {}
+    api_endpoints = {}
     for t, ep in _api_calls:
-        endpoint_counts[ep] = endpoint_counts.get(ep, 0) + 1
+        api_endpoints[ep] = api_endpoints.get(ep, 0) + 1
+
+    # Scheduler stats (if running)
+    try:
+        from spotify_watcher import get_call_stats
+        sched = get_call_stats()
+    except Exception:
+        sched = {"calls_last_1m": 0, "calls_last_10m": 0, "calls_last_1h": 0, "by_endpoint": {}}
 
     return {
-        "calls_last_1m": calls_1m,
-        "calls_last_10m": calls_10m,
-        "calls_last_1h": calls_1h,
-        "by_endpoint": endpoint_counts,
+        "api": {
+            "calls_last_1m": api_1m,
+            "calls_last_10m": api_10m,
+            "calls_last_1h": api_1h,
+            "by_endpoint": api_endpoints,
+        },
+        "scheduler": sched,
+        "total": {
+            "calls_last_1m": api_1m + sched["calls_last_1m"],
+            "calls_last_10m": api_10m + sched["calls_last_10m"],
+            "calls_last_1h": api_1h + sched["calls_last_1h"],
+        },
         "rate_limits_hit": len(_rate_limit_log),
-        "rate_limit_events": _rate_limit_log[-10:],  # last 10 events
+        "rate_limit_events": _rate_limit_log[-10:],
     }
 
 

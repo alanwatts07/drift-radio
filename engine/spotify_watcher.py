@@ -11,9 +11,38 @@ from dataclasses import dataclass
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
+from collections import deque
+
 import config
 
 log = logging.getLogger(__name__)
+
+# --- Call tracking (shared with API via /spotify/stats) ---
+_calls = deque()  # timestamps of all Spotify API calls from scheduler
+
+def _track(endpoint: str):
+    now = time.time()
+    _calls.append((now, endpoint))
+    # Prune older than 1 hour
+    cutoff = now - 3600
+    while _calls and _calls[0][0] < cutoff:
+        _calls.popleft()
+
+def get_call_stats() -> dict:
+    """Return scheduler Spotify API call stats."""
+    now = time.time()
+    calls_1m = sum(1 for t, _ in _calls if now - t < 60)
+    calls_10m = sum(1 for t, _ in _calls if now - t < 600)
+    calls_1h = len(_calls)
+    by_endpoint = {}
+    for t, ep in _calls:
+        by_endpoint[ep] = by_endpoint.get(ep, 0) + 1
+    return {
+        "calls_last_1m": calls_1m,
+        "calls_last_10m": calls_10m,
+        "calls_last_1h": calls_1h,
+        "by_endpoint": by_endpoint,
+    }
 
 SCOPE = "user-read-playback-state user-read-currently-playing user-modify-playback-state"
 
@@ -63,6 +92,7 @@ def _make_sp() -> spotipy.Spotify:
 
 def get_playback(sp: spotipy.Spotify) -> PlaybackState:
     try:
+        _track("current_playback")
         pb = sp.current_playback()
         if not pb or not pb.get("item"):
             return PlaybackState(track=None, progress_ms=0, is_playing=False)
@@ -87,6 +117,7 @@ def get_playback(sp: spotipy.Spotify) -> PlaybackState:
 def pause(sp: spotipy.Spotify):
     """Pause Spotify playback."""
     try:
+        _track("pause")
         sp.pause_playback()
         log.info("[spotify] paused")
     except Exception as e:
@@ -96,6 +127,7 @@ def pause(sp: spotipy.Spotify):
 def resume(sp: spotipy.Spotify):
     """Resume Spotify playback."""
     try:
+        _track("resume")
         sp.start_playback()
         log.info("[spotify] resumed")
     except Exception as e:
