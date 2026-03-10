@@ -107,10 +107,12 @@ def _play_segment(sp, segment_path: Path):
     log.info(f"[scheduler] playing segment: {segment_path.name} ({duration:.1f}s)")
 
     spotify_watcher.pause(sp)
-    time.sleep(0.5)  # let harbor go silent
+    time.sleep(0.3)  # let harbor go silent
 
     liquidsoap_queue.push_segment(segment_path, priority=True)
-    time.sleep(duration + 1)  # wait for segment to finish (+1s buffer)
+    # Resume Spotify ~3s before segment ends — Spotify takes a few seconds
+    # to actually start playback, so this overlaps perfectly
+    time.sleep(max(0, duration - 3))
 
     spotify_watcher.resume(sp)
     log.info(f"[scheduler] segment done, Spotify resumed")
