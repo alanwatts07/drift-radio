@@ -4,6 +4,7 @@
 import subprocess
 import random
 import logging
+import os
 import requests
 from pathlib import Path
 from datetime import datetime
@@ -14,13 +15,20 @@ import tts_renderer
 log = logging.getLogger(__name__)
 
 
-def _claude(prompt: str, max_turns: int = 1, timeout: int = config.CLAUDE_TIMEOUT) -> str:
+def _claude(prompt: str, system: str = None, max_turns: int = 1, timeout: int = config.CLAUDE_TIMEOUT) -> str:
     """Run Claude CLI, return stdout."""
+    cmd = ["claude", "-p", prompt, "--max-turns", str(max_turns)]
+    if system:
+        cmd += ["--system-prompt", system]
+    env = {**os.environ}
+    env.pop("CLAUDECODE", None)
+    env.pop("CLAUDE_CODE", None)
     result = subprocess.run(
-        ["claude", "-p", prompt, "--max-turns", str(max_turns)],
+        cmd,
         capture_output=True,
         text=True,
         timeout=timeout,
+        env=env,
     )
     if result.returncode != 0:
         log.error(f"Claude CLI error: {result.stderr[:500]}")

@@ -2,8 +2,12 @@
 """
 drift-radio main scheduler.
 
+Segment budget per hour:
+  - 1 news break (generated at :50, queued to play at top of hour)
+  - 2 song facts max (generated at song start, queued near song end)
+
 Song fact flow:
-  1. Track changes → immediately start generating segment in background
+  1. Track changes → check if we have budget → start generating in background
   2. Poll remaining time while generating
   3. Segment ready + song has <QUEUE_THRESHOLD_S remaining → queue it
   4. Segment ready but song has lots of time left → wait
@@ -13,7 +17,6 @@ Song fact flow:
 import threading
 import time
 import logging
-import random
 import os
 import requests
 from pathlib import Path
@@ -28,6 +31,7 @@ import segment_generator
 import liquidsoap_queue
 import spotify_watcher
 
+Path(config.LOGS_DIR).mkdir(exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
@@ -42,6 +46,26 @@ executor = ThreadPoolExecutor(max_workers=3)
 
 # How many seconds from end of song to queue the segment
 QUEUE_THRESHOLD_S = 15
+
+# --- Rate limiting ---
+MAX_SONG_FACTS_PER_HOUR = 2
+MAX_NEWS_PER_HOUR = 1
+
+_song_facts_this_hour = 0
+_news_this_hour = 0
+_current_hour = datetime.now().hour
+
+
+def _reset_hourly_counters():
+    """Reset counters at the top of each hour."""
+    global _song_facts_this_hour, _news_this_hour, _current_hour
+    hour = datetime.now().hour
+    if hour != _current_hour:
+        log.info(f"[scheduler] new hour ({hour:02d}:00) — resetting counters "
+                 f"(song facts: {_song_facts_this_hour}, news: {_news_this_hour})")
+        _song_facts_this_hour = 0
+        _news_this_hour = 0
+        _current_hour = hour
 
 
 # --- Listener check ---
@@ -104,7 +128,7 @@ def _wait_and_queue_song_fact(future: Future, sp, track):
 
         if state.track and state.track != track:
             # Song already changed — we missed the window, queue now for current song
-            log.info(f"[scheduler] song changed before queue window, queuing for current track")
+            log.info("[scheduler] song changed before queue window, queuing for current track")
             break
 
         remaining = state.remaining_s
@@ -121,11 +145,20 @@ def _wait_and_queue_song_fact(future: Future, sp, track):
 
 
 def on_track_change(prev, curr, sp):
+    global _song_facts_this_hour
+    _reset_hourly_counters()
+
+    if _song_facts_this_hour >= MAX_SONG_FACTS_PER_HOUR:
+        log.info(f"[scheduler] song fact budget exhausted ({_song_facts_this_hour}/{MAX_SONG_FACTS_PER_HOUR}), skipping")
+        return
+
     if not has_listeners():
         log.info("[scheduler] no listeners, skipping song fact")
         return
 
-    log.info(f"[scheduler] generating song fact for: {curr}")
+    log.info(f"[scheduler] generating song fact for: {curr} "
+             f"({_song_facts_this_hour + 1}/{MAX_SONG_FACTS_PER_HOUR} this hour)")
+    _song_facts_this_hour += 1
 
     # Start generation immediately in background
     future = executor.submit(segment_generator.song_fact, curr.artist, curr.title)
@@ -138,29 +171,31 @@ def on_track_change(prev, curr, sp):
     ).start()
 
 
-# --- Scheduled segments ---
+# --- News break: generate at :50, plays at top of hour ---
 
-_last_minute_fired: int | None = None
+_news_generated_this_hour = False
 
 
 def check_schedule():
-    global _last_minute_fired
+    global _news_this_hour, _news_generated_this_hour
+    _reset_hourly_counters()
+
     minute = datetime.now().minute
 
-    if minute == _last_minute_fired:
-        return
+    # Reset flag at top of hour
+    if minute < 5:
+        _news_generated_this_hour = False
 
-    if minute == config.SCHEDULE["full_broadcast_minute"]:
+    # Generate news at :50 so it's ready by :00
+    if minute == 50 and not _news_generated_this_hour:
+        if _news_this_hour >= MAX_NEWS_PER_HOUR:
+            log.info("[scheduler] news budget exhausted, skipping")
+            return
         if has_listeners():
-            log.info("[scheduler] :00 → full broadcast")
-            executor.submit(_generate_and_queue, segment_generator.full_broadcast)
-        _last_minute_fired = minute
-
-    elif minute == config.SCHEDULE["news_break_minute"]:
-        if has_listeners():
-            log.info("[scheduler] :30 → news break")
+            log.info("[scheduler] :50 → generating news break (will play after current track near :00)")
+            _news_generated_this_hour = True
+            _news_this_hour += 1
             executor.submit(_generate_and_queue, segment_generator.news_break)
-        _last_minute_fired = minute
 
 
 def _generate_and_queue(fn, *args, **kwargs):
@@ -176,28 +211,12 @@ def _generate_and_queue(fn, *args, **kwargs):
         log.error(f"[scheduler] {fn.__name__} failed: {e}")
 
 
-# --- Random agent commentary ---
-
-_last_agent_time: float = 0
-AGENT_INTERVAL_MIN = 20 * 60
-AGENT_INTERVAL_MAX = 40 * 60
-
-
-def check_agent_commentary():
-    global _last_agent_time
-    now = time.time()
-    if now - _last_agent_time > random.uniform(AGENT_INTERVAL_MIN, AGENT_INTERVAL_MAX):
-        if has_listeners():
-            log.info("[scheduler] random agent commentary")
-            topic = segment_generator._pick_topic()
-            executor.submit(_generate_and_queue, segment_generator.agent_take, topic)
-        _last_agent_time = now
-
-
 # --- Main ---
 
 def main():
     log.info("=== drift-radio scheduler starting ===")
+    log.info(f"    song facts: max {MAX_SONG_FACTS_PER_HOUR}/hr")
+    log.info(f"    news breaks: max {MAX_NEWS_PER_HOUR}/hr (generated at :50)")
     Path(config.LOGS_DIR).mkdir(exist_ok=True)
     Path(config.SEGMENTS_DIR).mkdir(exist_ok=True)
 
@@ -214,7 +233,6 @@ def main():
     try:
         while True:
             check_schedule()
-            check_agent_commentary()
             time.sleep(10)
     except KeyboardInterrupt:
         log.info("Shutting down...")
