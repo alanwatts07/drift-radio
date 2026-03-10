@@ -138,7 +138,7 @@ def _wait_and_queue_song_fact(future: Future, sp, track):
             log.info(f"[scheduler] {remaining:.1f}s left — queuing segment")
             break
 
-        time.sleep(2)
+        time.sleep(15)
 
     liquidsoap_queue.push_segment(segment_path)
     cleanup_segments()

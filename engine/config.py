@@ -35,8 +35,8 @@ CLAUDE_MAX_TURNS_NEWS = 3
 CLAUDE_MAX_TURNS_FACT = 1
 CLAUDE_TIMEOUT = 120
 
-# Spotify polling interval (seconds)
-SPOTIFY_POLL_INTERVAL = 3
+# Spotify polling interval (seconds) — keep high to avoid rate limits
+SPOTIFY_POLL_INTERVAL = 15
 
 # Segment cleanup: keep last N segments
 SEGMENTS_KEEP = 20
