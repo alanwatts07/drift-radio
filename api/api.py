@@ -131,6 +131,19 @@ def spotify_post(path: str, json_data: dict = None) -> dict:
     resp.raise_for_status()
     return resp.json()
 
+def spotify_put(path: str, json_data: dict = None) -> dict:
+    _track_call(path)
+    token = _refresh_spotify_token()
+    resp = requests.put(f"{SPOTIFY_API}{path}", headers={"Authorization": f"Bearer {token}"}, json=json_data, timeout=10)
+    if resp.status_code == 204:
+        return {}
+    if resp.status_code == 429:
+        retry_after = int(resp.headers.get("Retry-After", 5))
+        _track_429(path, retry_after)
+        return None
+    resp.raise_for_status()
+    return resp.json()
+
 
 # --- Models ---
 
@@ -293,6 +306,51 @@ async def queue_track(body: QueueRequest):
         return {"status": "queued", "uri": body.uri}
     except Exception as e:
         log.error(f"[queue] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Playlist endpoints ---
+
+@app.get("/playlists/search")
+async def search_playlists(q: str):
+    """Search Spotify playlists."""
+    if not q.strip():
+        raise HTTPException(status_code=400, detail="Query required")
+    try:
+        results = spotify_get("/search", params={"q": q, "type": "playlist", "limit": 8})
+        if results is None:
+            return {"playlists": [], "error": "Rate limited"}
+        playlists = []
+        for item in results.get("playlists", {}).get("items", []):
+            if not item:
+                continue
+            images = item.get("images", [])
+            playlists.append({
+                "name": item["name"],
+                "uri": item["uri"],
+                "owner": item.get("owner", {}).get("display_name", ""),
+                "tracks": item.get("tracks", {}).get("total", 0),
+                "image": images[0]["url"] if images else None,
+            })
+        return {"playlists": playlists}
+    except Exception as e:
+        log.error(f"[playlist-search] {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class PlaylistRequest(BaseModel):
+    uri: str
+
+
+@app.post("/playlists/play")
+async def play_playlist(body: PlaylistRequest, _=Depends(require_bartender)):
+    """Set a playlist as the current playback context."""
+    try:
+        spotify_put("/me/player/play", json_data={"context_uri": body.uri})
+        log.info(f"[playlist] playing {body.uri}")
+        return {"status": "playing", "uri": body.uri}
+    except Exception as e:
+        log.error(f"[playlist] {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

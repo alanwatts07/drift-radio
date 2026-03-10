@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { announceRaw, announceAI, getMode, setMode } from "@/lib/api";
+import { announceRaw, announceAI, getMode, setMode, searchPlaylists, playPlaylist, type Playlist } from "@/lib/api";
 
 const QUICK_BUTTONS = [
   "Happy hour starts now",
@@ -20,6 +20,10 @@ export default function BartenderPage() {
   const [loading, setLoading] = useState(false);
   const [announceNow, setAnnounceNow] = useState(false);
   const [mode, setModeState] = useState("jukebox");
+  const [plSearch, setPlSearch] = useState("");
+  const [plResults, setPlResults] = useState<Playlist[]>([]);
+  const [plActive, setPlActive] = useState("");
+  const [plLoading, setPlLoading] = useState(false);
 
   useEffect(() => {
     const saved = sessionStorage.getItem("ftr-password");
@@ -191,6 +195,70 @@ export default function BartenderPage() {
             style={{ border: "1px solid var(--border)" }}
           >
             {msg}
+          </button>
+        ))}
+      </div>
+
+      {/* Playlist / Vibe Setter */}
+      <div className="space-y-3">
+        <p className="text-xs text-[var(--muted)] uppercase tracking-wider">Set the Vibe</p>
+        {plActive && (
+          <p className="text-sm text-[var(--accent)]">Now playing: {plActive}</p>
+        )}
+        <div className="flex gap-2">
+          <input
+            placeholder="Search playlists..."
+            value={plSearch}
+            onChange={(e) => setPlSearch(e.target.value)}
+            onKeyDown={async (e) => {
+              if (e.key === "Enter" && plSearch.trim()) {
+                setPlLoading(true);
+                try {
+                  const res = await searchPlaylists(plSearch);
+                  setPlResults(res.playlists);
+                } catch { /* ignore */ }
+                setPlLoading(false);
+              }
+            }}
+            className="flex-1 px-4 py-3 rounded-xl bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] placeholder:text-[var(--muted)] outline-none focus:border-[var(--accent)] min-h-[44px] text-sm"
+          />
+          <button
+            onClick={async () => {
+              if (!plSearch.trim()) return;
+              setPlLoading(true);
+              try {
+                const res = await searchPlaylists(plSearch);
+                setPlResults(res.playlists);
+              } catch { /* ignore */ }
+              setPlLoading(false);
+            }}
+            className="px-4 py-3 rounded-xl font-semibold min-h-[44px] text-sm"
+            style={{ background: "var(--accent)", color: "var(--background)" }}
+          >
+            {plLoading ? "..." : "Search"}
+          </button>
+        </div>
+        {plResults.map((pl) => (
+          <button
+            key={pl.uri}
+            onClick={async () => {
+              try {
+                await playPlaylist(pl.uri, password);
+                setPlActive(pl.name);
+                setPlResults([]);
+                setPlSearch("");
+              } catch { /* ignore */ }
+            }}
+            className="w-full py-3 px-4 rounded-xl text-left text-sm min-h-[44px] transition-colors hover:bg-[var(--surface)] flex items-center gap-3"
+            style={{ border: "1px solid var(--border)" }}
+          >
+            {pl.image && (
+              <img src={pl.image} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+            )}
+            <div className="min-w-0">
+              <p className="font-medium truncate">{pl.name}</p>
+              <p className="text-xs text-[var(--muted)]">{pl.owner} — {pl.tracks} tracks</p>
+            </div>
           </button>
         ))}
       </div>

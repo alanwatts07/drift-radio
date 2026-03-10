@@ -97,3 +97,27 @@ export async function announceAI(prompt: string, password: string, now = false):
   });
   return res.json();
 }
+
+export interface Playlist {
+  name: string;
+  uri: string;
+  owner: string;
+  tracks: number;
+  image: string | null;
+}
+
+export async function searchPlaylists(q: string): Promise<{ playlists: Playlist[] }> {
+  const res = await fetch(`${API}/playlists/search?q=${encodeURIComponent(q)}`);
+  return res.json();
+}
+
+export async function playPlaylist(uri: string, password: string): Promise<void> {
+  await fetch(`${API}/playlists/play`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-password": password,
+    },
+    body: JSON.stringify({ uri }),
+  });
+}
