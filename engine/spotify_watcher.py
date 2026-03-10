@@ -135,15 +135,15 @@ def watch(on_track_change, stop_event=None):
                 log.error(f"[spotify] on_track_change error: {e}")
             continue
 
-        # Sleep until ~15s before song ends, then rapid-poll
+        # Sleep until ~5s before song ends, then poll every 1s
         remaining = state.remaining_s
-        if remaining > 20:
-            sleep_for = remaining - 15
+        if remaining > 8:
+            sleep_for = remaining - 5
             log.debug(f"[spotify] {remaining:.0f}s left, sleeping {sleep_for:.0f}s")
             time.sleep(sleep_for)
         else:
-            # We're in the final stretch — poll every 3s
-            time.sleep(3)
+            # Final 5s — poll every 1s to catch the exact change
+            time.sleep(1)
 
 
 if __name__ == "__main__":
