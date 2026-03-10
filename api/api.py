@@ -325,11 +325,13 @@ async def search_playlists(q: str):
             if not item:
                 continue
             images = item.get("images", [])
+            tracks_field = item.get("tracks", {})
+            track_count = tracks_field.get("total", 0) if isinstance(tracks_field, dict) else tracks_field
             playlists.append({
                 "name": item["name"],
                 "uri": item["uri"],
                 "owner": item.get("owner", {}).get("display_name", ""),
-                "tracks": item.get("tracks", {}).get("total", 0),
+                "tracks": track_count,
                 "image": images[0]["url"] if images else None,
             })
         return {"playlists": playlists}

@@ -238,7 +238,7 @@ export default function BartenderPage() {
             {plLoading ? "..." : "Search"}
           </button>
         </div>
-        {plResults.map((pl) => (
+        {(plResults || []).map((pl) => (
           <button
             key={pl.uri}
             onClick={async () => {
@@ -257,7 +257,7 @@ export default function BartenderPage() {
             )}
             <div className="min-w-0">
               <p className="font-medium truncate">{pl.name}</p>
-              <p className="text-xs text-[var(--muted)]">{pl.owner} — {pl.tracks} tracks</p>
+              <p className="text-xs text-[var(--muted)]">{pl.owner}</p>
             </div>
           </button>
         ))}
