@@ -25,6 +25,10 @@ export default function Home() {
 
   useEffect(() => {
     getMode().then((r) => setModeState(r.mode)).catch(() => {});
+    const modeInterval = setInterval(() => {
+      getMode().then((r) => setModeState(r.mode)).catch(() => {});
+    }, 30000);
+    return () => clearInterval(modeInterval);
   }, []);
 
   useEffect(() => {
