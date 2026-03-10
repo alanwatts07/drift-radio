@@ -104,9 +104,9 @@ def resume(sp: spotipy.Spotify):
 
 def watch(on_track_change, stop_event=None):
     """
-    Poll Spotify every SPOTIFY_POLL_INTERVAL seconds.
-    Calls on_track_change(prev_track, new_track, sp) on track change.
-    sp is passed so the callback can poll remaining time.
+    Smart polling: check once to get track + remaining time, sleep until
+    ~15s before end, then rapid-poll every 3s to catch the exact change.
+    Minimizes API calls (~5-10 per song instead of hundreds).
     """
     sp = _make_sp()
     state = get_playback(sp)
@@ -117,22 +117,33 @@ def watch(on_track_change, stop_event=None):
         if stop_event and stop_event.is_set():
             break
 
-        time.sleep(config.SPOTIFY_POLL_INTERVAL)
-
         state = get_playback(sp)
-        new = state.track
 
-        if new and new != current:
+        if not state.is_playing or not state.track:
+            # Nothing playing — slow poll
+            time.sleep(30)
+            continue
+
+        if state.track != current:
+            # Track changed while we were sleeping
             prev = current
-            current = new
+            current = state.track
             log.info(f"[spotify] track changed: {prev} → {current}")
             try:
                 on_track_change(prev, current, sp)
             except Exception as e:
                 log.error(f"[spotify] on_track_change error: {e}")
-        elif new is None and current is not None:
-            log.debug("[spotify] playback stopped")
-            current = None
+            continue
+
+        # Sleep until ~15s before song ends, then rapid-poll
+        remaining = state.remaining_s
+        if remaining > 20:
+            sleep_for = remaining - 15
+            log.debug(f"[spotify] {remaining:.0f}s left, sleeping {sleep_for:.0f}s")
+            time.sleep(sleep_for)
+        else:
+            # We're in the final stretch — poll every 3s
+            time.sleep(3)
 
 
 if __name__ == "__main__":
