@@ -9,7 +9,10 @@ settings.server.telnet.bind_addr.set("0.0.0.0")
 
 # --- Sources ---
 
-# Injected segments (Python drops files here via telnet)
+# Urgent announcements — interrupts immediately
+urgent = request.queue(id="urgent")
+
+# Injected segments (waits for current track to end)
 segments = request.queue(id="segments")
 
 # Spotify passthrough via BUTT → harbor input
@@ -26,13 +29,30 @@ local = playlist(
 )
 
 # --- Fallback chain ---
-# Segments take priority, then Spotify, then local music
+# Spotify takes over local immediately when connected (track_sensitive=false)
+music = fallback(
+  track_sensitive=false,
+  [
+    spotify,
+    local
+  ]
+)
+
+# Segments wait for current track to end
 radio = fallback(
   track_sensitive=true,
   [
     segments,
-    spotify,
-    local
+    music
+  ]
+)
+
+# Urgent cuts in immediately over everything
+radio = fallback(
+  track_sensitive=false,
+  [
+    urgent,
+    radio
   ]
 )
 

@@ -58,14 +58,14 @@ export async function getQueue(): Promise<{ queue: { title: string; artist: stri
   return res.json();
 }
 
-export async function announceRaw(text: string, password: string): Promise<void> {
+export async function announceRaw(text: string, password: string, now = false): Promise<void> {
   await fetch(`${API}/announce/raw`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "x-password": password,
     },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, now }),
   });
 }
 
@@ -86,14 +86,14 @@ export async function setMode(mode: "jukebox" | "ai-dj", password: string): Prom
   return res.json();
 }
 
-export async function announceAI(prompt: string, password: string): Promise<AnnounceResult> {
+export async function announceAI(prompt: string, password: string, now = false): Promise<AnnounceResult> {
   const res = await fetch(`${API}/announce/ai`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "x-password": password,
     },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, now }),
   });
   return res.json();
 }

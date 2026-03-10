@@ -18,6 +18,7 @@ export default function BartenderPage() {
   const [status, setStatus] = useState("");
   const [aiScript, setAiScript] = useState("");
   const [loading, setLoading] = useState(false);
+  const [announceNow, setAnnounceNow] = useState(false);
   const [mode, setModeState] = useState("jukebox");
 
   useEffect(() => {
@@ -50,8 +51,8 @@ export default function BartenderPage() {
     setLoading(true);
     setStatus("");
     try {
-      await announceRaw(body, password);
-      setStatus("Queued — plays after current track");
+      await announceRaw(body, password, announceNow);
+      setStatus(announceNow ? "Playing NOW" : "Queued — plays after current track");
       setText("");
     } catch {
       setStatus("Error sending announcement");
@@ -66,9 +67,9 @@ export default function BartenderPage() {
     setStatus("");
     setAiScript("");
     try {
-      const res = await announceAI(text, password);
+      const res = await announceAI(text, password, announceNow);
       setAiScript(res.script || "");
-      setStatus("Queued — plays after current track");
+      setStatus(announceNow ? "Playing NOW" : "Queued — plays after current track");
     } catch {
       setStatus("Error generating announcement");
     } finally {
@@ -146,13 +147,27 @@ export default function BartenderPage() {
         className="w-full px-4 py-3 rounded-xl bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] placeholder:text-[var(--muted)] outline-none focus:border-[var(--accent)] resize-none"
       />
 
+      {/* Timing toggle */}
+      <button
+        onClick={() => setAnnounceNow(!announceNow)}
+        className="w-full py-2 rounded-xl text-sm font-medium min-h-[44px] flex items-center justify-center gap-2 transition-colors"
+        style={{
+          background: announceNow ? "#e53e3e" : "var(--surface)",
+          color: announceNow ? "#fff" : "var(--muted)",
+          border: announceNow ? "none" : "1px solid var(--border)",
+        }}
+      >
+        <span className="w-2 h-2 rounded-full" style={{ background: announceNow ? "#fff" : "var(--muted)" }} />
+        {announceNow ? "ANNOUNCE NOW — interrupts music" : "After current track"}
+      </button>
+
       <button
         onClick={() => (tab === "raw" ? handleRaw() : handleAI())}
         disabled={loading}
         className="w-full py-3 rounded-xl font-semibold min-h-[44px] disabled:opacity-50"
-        style={{ background: "var(--accent)", color: "var(--background)" }}
+        style={{ background: announceNow ? "#e53e3e" : "var(--accent)", color: announceNow ? "#fff" : "var(--background)" }}
       >
-        {loading ? "Sending..." : tab === "raw" ? "Send" : "Generate"}
+        {loading ? "Sending..." : announceNow ? "SEND NOW" : (tab === "raw" ? "Send" : "Generate")}
       </button>
 
       {aiScript && (

@@ -136,9 +136,11 @@ def spotify_post(path: str, json_data: dict = None) -> dict:
 
 class RawAnnouncement(BaseModel):
     text: str
+    now: bool = False  # True = interrupt current song, False = queue after
 
 class AIAnnouncement(BaseModel):
     prompt: str
+    now: bool = False
 
 class QueueRequest(BaseModel):
     uri: str
@@ -152,17 +154,20 @@ async def announce_raw(body: RawAnnouncement, _=Depends(require_bartender)):
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
 
-    log.info(f"[announce/raw] {body.text[:60]}")
+    log.info(f"[announce/raw] {'NOW ' if body.now else ''}{body.text[:60]}")
     out = SEGMENTS_DIR / "announce_raw.mp3"
 
     try:
         tts_renderer.render(body.text, out)
-        liquidsoap_queue.push_segment(out)
+        if body.now:
+            liquidsoap_queue.push_segment(out, priority=True)
+        else:
+            liquidsoap_queue.push_segment(out)
     except Exception as e:
         log.error(f"[announce/raw] failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-    return {"status": "queued", "text": body.text}
+    return {"status": "playing now" if body.now else "queued", "text": body.text}
 
 
 @app.post("/announce/ai")
@@ -178,12 +183,20 @@ async def announce_ai(body: AIAnnouncement, _=Depends(require_bartender)):
         "Write a short, punchy on-air announcement (max 20 seconds when read aloud). "
         "No filler, no fake enthusiasm. Just say the thing. Output only the script."
     )
-    prompt = f"{system}\n\nAnnouncement topic: {body.prompt}"
 
     try:
+        # Use Claude CLI with nested session check bypassed
+        env = {**os.environ}
+        env.pop("CLAUDECODE", None)
+        env.pop("CLAUDE_CODE", None)
         result = subprocess.run(
-            ["claude", "-p", prompt, "--max-turns", "1"],
+            [
+                "claude", "-p", f"Announcement topic: {body.prompt}",
+                "--system-prompt", system,
+                "--max-turns", "1",
+            ],
             capture_output=True, text=True, timeout=60,
+            env=env,
         )
         if result.returncode != 0:
             raise RuntimeError(result.stderr[:200])
@@ -195,11 +208,14 @@ async def announce_ai(body: AIAnnouncement, _=Depends(require_bartender)):
     out = SEGMENTS_DIR / "announce_ai.mp3"
     try:
         tts_renderer.render(script, out)
-        liquidsoap_queue.push_segment(out)
+        if body.now:
+            liquidsoap_queue.push_segment(out, priority=True)
+        else:
+            liquidsoap_queue.push_segment(out)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    return {"status": "queued", "script": script}
+    return {"status": "playing now" if body.now else "queued", "script": script}
 
 
 # --- Spotify endpoints ---
