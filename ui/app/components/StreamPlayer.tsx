@@ -40,8 +40,11 @@ export default function StreamPlayer() {
               setVolume(v);
               if (audioRef.current) audioRef.current.volume = v;
             }}
-            className="flex-1 h-1 rounded-full appearance-none cursor-pointer"
-            style={{ accentColor: "var(--accent)" }}
+            className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer"
+            style={{
+              background: `linear-gradient(to right, var(--accent) ${volume * 100}%, var(--surface) ${volume * 100}%)`,
+              accentColor: "var(--accent)",
+            }}
           />
         </div>
       )}
