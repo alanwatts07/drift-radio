@@ -4,20 +4,19 @@ drift-radio main scheduler.
 
 Segment budget per hour:
   - 1 news break (generated at :50, queued to play at top of hour)
-  - 2 song facts max (generated at song start, queued near song end)
+  - 2 song facts max (generated at song start, plays between songs)
 
-Song fact flow:
-  1. Track changes → check if we have budget → start generating in background
-  2. Poll remaining time while generating
-  3. Segment ready + song has <QUEUE_THRESHOLD_S remaining → queue it
-  4. Segment ready but song has lots of time left → wait
-  5. Song ends before segment ready → hold segment, queue after next track starts
+Playback flow:
+  1. Song fact: generate during current song, store it
+  2. When track changes: pause Spotify → push segment → wait for duration → resume
+  3. News: generate at :50, store it, play at next track change after :00
 """
 
 import threading
 import time
 import logging
 import os
+import subprocess
 import requests
 from pathlib import Path
 from datetime import datetime
@@ -44,9 +43,6 @@ log = logging.getLogger(__name__)
 
 executor = ThreadPoolExecutor(max_workers=3)
 
-# How many seconds from end of song to queue the segment
-QUEUE_THRESHOLD_S = 15
-
 # --- Rate limiting ---
 MAX_SONG_FACTS_PER_HOUR = 2
 MAX_NEWS_PER_HOUR = 1
@@ -68,7 +64,7 @@ def _reset_hourly_counters():
         _current_hour = hour
 
 
-# --- Listener check ---
+# --- Helpers ---
 
 def has_listeners() -> bool:
     try:
@@ -79,10 +75,8 @@ def has_listeners() -> bool:
             sources = [sources]
         return sum(s.get("listeners", 0) for s in sources) > 0
     except Exception:
-        return True  # assume listeners if we can't check
+        return True
 
-
-# --- Segment cleanup ---
 
 def cleanup_segments():
     segs = sorted(Path(config.SEGMENTS_DIR).glob("*.mp3"), key=os.path.getmtime)
@@ -93,91 +87,111 @@ def cleanup_segments():
             pass
 
 
-# --- Song fact: smart queuing ---
-
-def _wait_and_queue_song_fact(future: Future, sp, track):
-    """
-    Wait for generation to finish, then wait for the right moment to queue.
-    Right moment = song has <= QUEUE_THRESHOLD_S remaining.
-    If song ends before segment is ready, queue immediately when next song starts.
-    """
-    log.info(f"[scheduler] waiting for segment generation ({track})")
-
-    # Block until generation done
+def _get_mp3_duration(path: Path) -> float:
+    """Get duration of mp3 in seconds using ffprobe."""
     try:
-        segment_path = future.result(timeout=config.CLAUDE_TIMEOUT + 30)
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+            capture_output=True, text=True, timeout=10,
+        )
+        return float(result.stdout.strip())
     except Exception as e:
-        log.error(f"[scheduler] song fact generation failed: {e}")
-        return
+        log.warning(f"[scheduler] ffprobe failed for {path}: {e}")
+        return 30.0  # safe fallback
 
-    if not segment_path or not Path(segment_path).exists():
-        log.error("[scheduler] segment path missing after generation")
-        return
 
-    log.info(f"[scheduler] segment ready: {segment_path.name}, waiting for queue window")
+def _play_segment(sp, segment_path: Path):
+    """Pause Spotify → push segment → wait for it to finish → resume Spotify."""
+    duration = _get_mp3_duration(segment_path)
+    log.info(f"[scheduler] playing segment: {segment_path.name} ({duration:.1f}s)")
 
-    # Poll remaining time, queue when <= threshold
-    deadline = time.time() + 600  # give up after 10 min (next song etc)
-    while time.time() < deadline:
-        state = spotify_watcher.get_playback(sp)
+    spotify_watcher.pause(sp)
+    time.sleep(0.5)  # let harbor go silent
 
-        if not state.is_playing:
-            # Playback stopped — queue now, it'll play next
-            log.info("[scheduler] playback stopped, queuing segment now")
-            break
+    liquidsoap_queue.push_segment(segment_path, priority=True)
+    time.sleep(duration + 1)  # wait for segment to finish (+1s buffer)
 
-        if state.track and state.track != track:
-            # Song already changed — we missed the window, queue now for current song
-            log.info("[scheduler] song changed before queue window, queuing for current track")
-            break
-
-        remaining = state.remaining_s
-        log.debug(f"[scheduler] remaining: {remaining:.1f}s (threshold: {QUEUE_THRESHOLD_S}s)")
-
-        if remaining <= QUEUE_THRESHOLD_S:
-            log.info(f"[scheduler] {remaining:.1f}s left — queuing segment")
-            break
-
-        time.sleep(15)
-
-    liquidsoap_queue.push_segment(segment_path)
+    spotify_watcher.resume(sp)
+    log.info(f"[scheduler] segment done, Spotify resumed")
     cleanup_segments()
 
 
+# --- Pending segments ---
+# Segments generated during a song, waiting to play at next track change
+
+_pending_lock = threading.Lock()
+_pending_segments: list[Path] = []
+
+
+def _add_pending(path: Path):
+    with _pending_lock:
+        _pending_segments.append(path)
+        log.info(f"[scheduler] segment ready, pending: {path.name}")
+
+
+def _drain_pending(sp):
+    """Play all pending segments (called on track change)."""
+    with _pending_lock:
+        segments = list(_pending_segments)
+        _pending_segments.clear()
+
+    if not segments:
+        return
+
+    log.info(f"[scheduler] playing {len(segments)} pending segment(s)")
+    for seg in segments:
+        if seg.exists():
+            _play_segment(sp, seg)
+
+
+# --- Song fact generation ---
+
+_generating_for: str | None = None  # track URI we're currently generating for
+
+
+def _generate_song_fact(artist: str, title: str):
+    """Generate song fact in background, add to pending when done."""
+    try:
+        path = segment_generator.song_fact(artist, title)
+        if path and Path(path).exists():
+            _add_pending(Path(path))
+    except Exception as e:
+        log.error(f"[scheduler] song fact generation failed: {e}")
+
+
 def on_track_change(prev, curr, sp):
-    global _song_facts_this_hour
+    global _song_facts_this_hour, _generating_for
     _reset_hourly_counters()
 
+    # First, play any pending segments from the previous song
+    _drain_pending(sp)
+
+    # Then start generating a fact for the new song
     if _song_facts_this_hour >= MAX_SONG_FACTS_PER_HOUR:
-        log.info(f"[scheduler] song fact budget exhausted ({_song_facts_this_hour}/{MAX_SONG_FACTS_PER_HOUR}), skipping")
+        log.info(f"[scheduler] song fact budget exhausted ({_song_facts_this_hour}/{MAX_SONG_FACTS_PER_HOUR})")
         return
 
     if not has_listeners():
         log.info("[scheduler] no listeners, skipping song fact")
         return
 
-    log.info(f"[scheduler] generating song fact for: {curr} "
-             f"({_song_facts_this_hour + 1}/{MAX_SONG_FACTS_PER_HOUR} this hour)")
     _song_facts_this_hour += 1
+    _generating_for = curr.uri
+    log.info(f"[scheduler] generating song fact for: {curr} "
+             f"({_song_facts_this_hour}/{MAX_SONG_FACTS_PER_HOUR} this hour)")
 
-    # Start generation immediately in background
-    future = executor.submit(segment_generator.song_fact, curr.artist, curr.title)
-
-    # Watch and queue in a separate thread
-    threading.Thread(
-        target=_wait_and_queue_song_fact,
-        args=(future, sp, curr),
-        daemon=True,
-    ).start()
+    executor.submit(_generate_song_fact, curr.artist, curr.title)
 
 
-# --- News break: generate at :50, plays at top of hour ---
+# --- News break ---
 
 _news_generated_this_hour = False
+_news_pending_path: Path | None = None
 
 
 def check_schedule():
-    global _news_this_hour, _news_generated_this_hour
+    global _news_this_hour, _news_generated_this_hour, _news_pending_path
     _reset_hourly_counters()
 
     minute = datetime.now().minute
@@ -189,26 +203,22 @@ def check_schedule():
     # Generate news at :50 so it's ready by :00
     if minute == 50 and not _news_generated_this_hour:
         if _news_this_hour >= MAX_NEWS_PER_HOUR:
-            log.info("[scheduler] news budget exhausted, skipping")
             return
         if has_listeners():
-            log.info("[scheduler] :50 → generating news break (will play after current track near :00)")
+            log.info("[scheduler] :50 → generating news break")
             _news_generated_this_hour = True
             _news_this_hour += 1
-            executor.submit(_generate_and_queue, segment_generator.news_break)
+            executor.submit(_generate_news)
 
 
-def _generate_and_queue(fn, *args, **kwargs):
+def _generate_news():
+    """Generate news and add to pending segments."""
     try:
-        result = fn(*args, **kwargs)
-        if isinstance(result, list):
-            for path in result:
-                liquidsoap_queue.push_segment(path)
-        else:
-            liquidsoap_queue.push_segment(result)
-        cleanup_segments()
+        path = segment_generator.news_break()
+        if path and Path(path).exists():
+            _add_pending(Path(path))
     except Exception as e:
-        log.error(f"[scheduler] {fn.__name__} failed: {e}")
+        log.error(f"[scheduler] news generation failed: {e}")
 
 
 # --- Main ---
@@ -217,7 +227,6 @@ def main():
     log.info("=== drift-radio scheduler starting ===")
     log.info(f"    song facts: max {MAX_SONG_FACTS_PER_HOUR}/hr")
     log.info(f"    news breaks: max {MAX_NEWS_PER_HOUR}/hr (generated at :50)")
-    Path(config.LOGS_DIR).mkdir(exist_ok=True)
     Path(config.SEGMENTS_DIR).mkdir(exist_ok=True)
 
     stop_event = threading.Event()

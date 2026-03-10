@@ -15,7 +15,7 @@ import config
 
 log = logging.getLogger(__name__)
 
-SCOPE = "user-read-playback-state user-read-currently-playing"
+SCOPE = "user-read-playback-state user-read-currently-playing user-modify-playback-state"
 
 
 @dataclass
@@ -82,6 +82,24 @@ def get_playback(sp: spotipy.Spotify) -> PlaybackState:
     except Exception as e:
         log.warning(f"[spotify] playback fetch failed: {e}")
         return PlaybackState(track=None, progress_ms=0, is_playing=False)
+
+
+def pause(sp: spotipy.Spotify):
+    """Pause Spotify playback."""
+    try:
+        sp.pause_playback()
+        log.info("[spotify] paused")
+    except Exception as e:
+        log.warning(f"[spotify] pause failed: {e}")
+
+
+def resume(sp: spotipy.Spotify):
+    """Resume Spotify playback."""
+    try:
+        sp.start_playback()
+        log.info("[spotify] resumed")
+    except Exception as e:
+        log.warning(f"[spotify] resume failed: {e}")
 
 
 def watch(on_track_change, stop_event=None):
