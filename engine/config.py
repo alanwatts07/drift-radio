@@ -8,7 +8,7 @@ AGENTS = ["max", "beth", "gerald"]
 DRIFT_AGENTS_API_URL = os.getenv("DRIFT_AGENTS_API_URL", "https://agents-api.mattcorwin.dev")
 
 # Paths
-SEGMENTS_DIR = "segments/"
+SEGMENTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "segments")
 MUSIC_BEDS_DIR = "music_beds/"
 MUSIC_DIR = "music/"
 LOGS_DIR = "logs/"
