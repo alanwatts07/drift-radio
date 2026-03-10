@@ -119,19 +119,21 @@ def _play_segment(sp, segment_path: Path):
 
 # --- Pending segments ---
 # Segments generated during a song, waiting to play at next track change
+# Each entry: (path, song_uri_or_None)
+# song_uri is set for song facts (skip if song was skipped), None for news (always play)
 
 _pending_lock = threading.Lock()
-_pending_segments: list[Path] = []
+_pending_segments: list[tuple[Path, str | None]] = []
 
 
-def _add_pending(path: Path):
+def _add_pending(path: Path, song_uri: str | None = None):
     with _pending_lock:
-        _pending_segments.append(path)
+        _pending_segments.append((path, song_uri))
         log.info(f"[scheduler] segment ready, pending: {path.name}")
 
 
-def _drain_pending(sp):
-    """Play all pending segments (called on track change)."""
+def _drain_pending(sp, prev_track):
+    """Play pending segments. Song facts only play if they match the song that just ended."""
     with _pending_lock:
         segments = list(_pending_segments)
         _pending_segments.clear()
@@ -139,33 +141,33 @@ def _drain_pending(sp):
     if not segments:
         return
 
-    log.info(f"[scheduler] playing {len(segments)} pending segment(s)")
-    for seg in segments:
-        if seg.exists():
-            _play_segment(sp, seg)
+    prev_uri = prev_track.uri if prev_track else None
+    for seg_path, song_uri in segments:
+        if song_uri and prev_uri and song_uri != prev_uri:
+            log.info(f"[scheduler] skipping stale segment {seg_path.name} (song was skipped)")
+            continue
+        if seg_path.exists():
+            _play_segment(sp, seg_path)
 
 
 # --- Song fact generation ---
 
-_generating_for: str | None = None  # track URI we're currently generating for
-
-
-def _generate_song_fact(artist: str, title: str):
-    """Generate song fact in background, add to pending when done."""
+def _generate_song_fact(artist: str, title: str, uri: str):
+    """Generate song fact in background, add to pending tagged with song URI."""
     try:
         path = segment_generator.song_fact(artist, title)
         if path and Path(path).exists():
-            _add_pending(Path(path))
+            _add_pending(Path(path), song_uri=uri)
     except Exception as e:
         log.error(f"[scheduler] song fact generation failed: {e}")
 
 
 def on_track_change(prev, curr, sp):
-    global _song_facts_this_hour, _generating_for
+    global _song_facts_this_hour
     _reset_hourly_counters()
 
-    # First, play any pending segments from the previous song
-    _drain_pending(sp)
+    # First, play any pending segments — song facts only if prev matches
+    _drain_pending(sp, prev)
 
     # Then start generating a fact for the new song
     if _song_facts_this_hour >= MAX_SONG_FACTS_PER_HOUR:
@@ -181,7 +183,7 @@ def on_track_change(prev, curr, sp):
     log.info(f"[scheduler] generating song fact for: {curr} "
              f"({_song_facts_this_hour}/{MAX_SONG_FACTS_PER_HOUR} this hour)")
 
-    executor.submit(_generate_song_fact, curr.artist, curr.title)
+    executor.submit(_generate_song_fact, curr.artist, curr.title, curr.uri)
 
 
 # --- News break ---

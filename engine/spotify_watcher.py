@@ -135,12 +135,18 @@ def watch(on_track_change, stop_event=None):
                 log.error(f"[spotify] on_track_change error: {e}")
             continue
 
-        # Sleep until ~5s before song ends, then poll every 1s
+        # Sleep until ~5s before song ends, then verify same song before rapid-poll
         remaining = state.remaining_s
         if remaining > 8:
             sleep_for = remaining - 5
             log.debug(f"[spotify] {remaining:.0f}s left, sleeping {sleep_for:.0f}s")
             time.sleep(sleep_for)
+
+            # After waking, verify it's still the same song before burning API calls
+            check = get_playback(sp)
+            if not check.track or check.track != current:
+                # Song changed while sleeping — loop back, top of loop will handle it
+                continue
         else:
             # Final 5s — poll every 1s to catch the exact change
             time.sleep(1)
