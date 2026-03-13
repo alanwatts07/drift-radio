@@ -15,14 +15,14 @@ import tts_renderer
 log = logging.getLogger(__name__)
 
 
-def _claude(prompt: str, system: str = None, max_turns: int = 1, timeout: int = config.CLAUDE_TIMEOUT) -> str:
+def _claude(prompt: str, system: str = None, max_turns: int = 1, use_web: bool = False, timeout: int = config.CLAUDE_TIMEOUT) -> str:
     """Run Claude CLI, return stdout."""
     cmd = ["claude", "-p", prompt, "--max-turns", str(max_turns)]
+    if use_web:
+        cmd += ["--allowedTools", "WebSearch,WebFetch"]
     if system:
         cmd += ["--system-prompt", system]
-    env = {**os.environ}
-    env.pop("CLAUDECODE", None)
-    env.pop("CLAUDE_CODE", None)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
     result = subprocess.run(
         cmd,
         capture_output=True,
@@ -33,7 +33,13 @@ def _claude(prompt: str, system: str = None, max_turns: int = 1, timeout: int = 
     if result.returncode != 0:
         log.error(f"Claude CLI error: {result.stderr[:500]}")
         raise RuntimeError(f"Claude exited {result.returncode}")
-    return result.stdout.strip()
+    text = result.stdout.strip()
+    # Catch Claude meta-output that shouldn't be TTS'd
+    error_markers = ["max turns", "reached max", "error", "I cannot", "I can't"]
+    if any(marker in text.lower() for marker in error_markers) and len(text) < 200:
+        log.warning(f"[gen] Claude returned meta/error text, not a script: {text[:200]}")
+        raise RuntimeError(f"Claude returned error text: {text[:100]}")
+    return text
 
 
 def _segment_path(label: str) -> Path:
@@ -44,7 +50,7 @@ def _segment_path(label: str) -> Path:
 def song_fact(artist: str, track: str) -> Path:
     """Generate a ~40s song fact segment."""
     prompt = (
-        f"You are a dry, deadpan radio host. Write a 40-second radio script "
+        f"You are a dry, deadpan radio host for FTR — Fun Time Radio. Write a 40-second radio script "
         f"with 3 interesting facts about '{artist} - {track}'. "
         f"Dry tone, no enthusiasm, no filler phrases like 'stay tuned' or 'up next'. "
         f"Just facts delivered with flat wit. Output only the script, nothing else."
@@ -58,13 +64,14 @@ def song_fact(artist: str, track: str) -> Path:
 def news_break() -> Path:
     """Generate a ~60s news break using web search."""
     prompt = (
-        "You are a dry, deadpan radio host. Use web search to find 3 real, "
+        "You are a dry, deadpan radio host for FTR — Fun Time Radio. Use web search to find 3 real, "
         "interesting news stories from today. Write a 60-second radio script. "
         "No filler, no hype. Just facts with dry wit. "
-        "Output only the script, nothing else."
+        "You may mention source names naturally (e.g. 'according to Reuters') but NEVER include URLs or links. "
+        "Output only the spoken script, nothing else."
     )
     log.info("[gen] news break")
-    script = _claude(prompt, max_turns=config.CLAUDE_MAX_TURNS_NEWS)
+    script = _claude(prompt, max_turns=config.CLAUDE_MAX_TURNS_NEWS, use_web=True)
     out = _segment_path("news_break")
     return tts_renderer.render(script, out)
 

@@ -13,7 +13,7 @@ services:
       - ./liquidsoap:/etc/liquidsoap
       - ./music:/music
       - ./music_beds:/music_beds
-      - ./segments:/segments
+      - /home/morpheus/Hackstuff/drift-radio/segments:/segments
     ports:
       - "1234:1234"   # telnet API
       - "8005:8005"   # BUTT/harbor input

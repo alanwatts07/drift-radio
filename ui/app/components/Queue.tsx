@@ -9,16 +9,28 @@ export interface QueueTrack {
 interface Props {
   tracks: QueueTrack[];
   queuedBy: Map<string, string>; // track title -> person's name
+  onRefresh?: () => void;
 }
 
-export default function Queue({ tracks, queuedBy }: Props) {
+export default function Queue({ tracks, queuedBy, onRefresh }: Props) {
   if (!tracks.length) return null;
 
   return (
     <div className="w-full space-y-2">
-      <h2 className="text-sm font-semibold text-[var(--muted)] uppercase tracking-wider">
-        Up Next
-      </h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-[var(--muted)] uppercase tracking-wider">
+          Up Next
+        </h2>
+        {onRefresh && (
+          <button
+            onClick={onRefresh}
+            className="text-xs text-[var(--muted)] hover:text-[var(--foreground)] transition-colors px-2 py-1"
+            title="Refresh queue"
+          >
+            ↻
+          </button>
+        )}
+      </div>
       <div className="space-y-1">
         {tracks.map((t, i) => {
           const requestedBy = queuedBy.get(t.title);

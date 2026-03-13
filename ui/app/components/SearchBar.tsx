@@ -33,11 +33,11 @@ export default function SearchBar({ onQueued }: Props) {
     }
   }, []);
 
-  useEffect(() => {
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => doSearch(query), 400);
-    return () => clearTimeout(timerRef.current);
-  }, [query, doSearch]);
+  function handleSearchSubmit(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      doSearch(query);
+    }
+  }
 
   function handleTap(track: SearchTrack) {
     if (hasName) {
@@ -81,6 +81,7 @@ export default function SearchBar({ onQueued }: Props) {
         placeholder="Search for a song..."
         value={query}
         onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={handleSearchSubmit}
         className="w-full px-4 py-3 rounded-xl bg-[var(--surface)] border border-[var(--border)] text-[var(--foreground)] placeholder:text-[var(--muted)] outline-none focus:border-[var(--accent)] min-h-[44px]"
       />
       {loading && <p className="text-sm text-[var(--muted)]">Searching...</p>}

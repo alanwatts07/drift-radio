@@ -21,7 +21,7 @@ ICECAST_STATUS_URL = os.getenv("ICECAST_STATUS_URL", "http://localhost:8000/stat
 ICECAST_PASSWORD = os.getenv("ICECAST_PASSWORD", "hackme")
 
 # TTS
-TTS_VOICE = "onyx"
+TTS_VOICE = "shimmer"
 TTS_SPEED = 0.95
 
 # Schedule (minute-of-hour triggers)
@@ -31,7 +31,7 @@ SCHEDULE = {
 }
 
 # Claude CLI
-CLAUDE_MAX_TURNS_NEWS = 3
+CLAUDE_MAX_TURNS_NEWS = 6
 CLAUDE_MAX_TURNS_FACT = 1
 CLAUDE_TIMEOUT = 120
 

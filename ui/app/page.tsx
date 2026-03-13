@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AlbumArt from "./components/AlbumArt";
 import NowPlaying from "./components/NowPlaying";
 import StreamPlayer from "./components/StreamPlayer";
@@ -35,7 +35,7 @@ export default function Home() {
     getNowPlaying().then(setNp).catch(() => {});
     const npInterval = setInterval(() => {
       getNowPlaying().then(setNp).catch(() => {});
-    }, 15000);
+    }, 30000);
     return () => clearInterval(npInterval);
   }, []);
 
@@ -47,12 +47,16 @@ export default function Home() {
     return () => clearInterval(statusInterval);
   }, []);
 
+  const queueIntervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  const queuePausedUntil = useRef(0);
+
   useEffect(() => {
     getQueue().then((d) => setQueue(d.queue)).catch(() => {});
-    const queueInterval = setInterval(() => {
+    queueIntervalRef.current = setInterval(() => {
+      if (Date.now() < queuePausedUntil.current) return; // skip while paused
       getQueue().then((d) => setQueue(d.queue)).catch(() => {});
     }, 30000);
-    return () => clearInterval(queueInterval);
+    return () => clearInterval(queueIntervalRef.current);
   }, []);
 
   function handleQueued(track: SearchTrack, name: string) {
@@ -61,10 +65,18 @@ export default function Home() {
       next.set(track.title, name);
       return next;
     });
-    // Refresh queue after a short delay to pick up the new track
-    setTimeout(() => {
-      getQueue().then((d) => setQueue(d.queue)).catch(() => {});
-    }, 2000);
+    // Optimistic: prepend to top of queue
+    setQueue((prev) => [
+      { title: track.title, artist: track.artist, album_art: track.album_art },
+      ...prev,
+    ]);
+    // Pause auto-poll for 60s so stale cache doesn't overwrite
+    queuePausedUntil.current = Date.now() + 60000;
+  }
+
+  function refreshQueue() {
+    queuePausedUntil.current = 0; // unpause on manual refresh
+    getQueue().then((d) => setQueue(d.queue)).catch(() => {});
   }
 
   return (
@@ -98,7 +110,7 @@ export default function Home() {
 
       <SearchBar onQueued={handleQueued} />
 
-      <Queue tracks={queue} queuedBy={queuedBy} />
+      <Queue tracks={queue} queuedBy={queuedBy} onRefresh={refreshQueue} />
     </div>
   );
 }

@@ -1,50 +1,22 @@
 #!/usr/bin/env python3
 """
 Spotify watcher — track change detection + playback state.
-Provides remaining time so scheduler can queue segments at the right moment.
+Routes ALL Spotify calls through the FTR API so everything shares one throttle.
 """
 
 import time
 import logging
 import os
 from dataclasses import dataclass
-import spotipy
-from spotipy.oauth2 import SpotifyOAuth
 
-from collections import deque
+import requests
 
 import config
 
 log = logging.getLogger(__name__)
 
-# --- Call tracking (shared with API via /spotify/stats) ---
-_calls = deque()  # timestamps of all Spotify API calls from scheduler
-
-def _track(endpoint: str):
-    now = time.time()
-    _calls.append((now, endpoint))
-    # Prune older than 1 hour
-    cutoff = now - 3600
-    while _calls and _calls[0][0] < cutoff:
-        _calls.popleft()
-
-def get_call_stats() -> dict:
-    """Return scheduler Spotify API call stats."""
-    now = time.time()
-    calls_1m = sum(1 for t, _ in _calls if now - t < 60)
-    calls_10m = sum(1 for t, _ in _calls if now - t < 600)
-    calls_1h = len(_calls)
-    by_endpoint = {}
-    for t, ep in _calls:
-        by_endpoint[ep] = by_endpoint.get(ep, 0) + 1
-    return {
-        "calls_last_1m": calls_1m,
-        "calls_last_10m": calls_10m,
-        "calls_last_1h": calls_1h,
-        "by_endpoint": by_endpoint,
-    }
-
-SCOPE = "user-read-playback-state user-read-currently-playing user-modify-playback-state"
+API_BASE = os.getenv("FTR_API_URL", "http://localhost:8080")
+BARTENDER_PASSWORD = os.getenv("BARTENDER_PASSWORD", "ftr2024")
 
 
 @dataclass
@@ -78,110 +50,143 @@ class PlaybackState:
         return self.remaining_ms / 1000
 
 
-def _make_sp() -> spotipy.Spotify:
-    return spotipy.Spotify(
-        auth_manager=SpotifyOAuth(
-            client_id=os.getenv("SPOTIFY_CLIENT_ID"),
-            client_secret=os.getenv("SPOTIFY_CLIENT_SECRET"),
-            redirect_uri=os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback"),
-            scope=SCOPE,
-            cache_path=".spotify_cache",
+def _api_get(path: str) -> dict | None:
+    """GET from the FTR API."""
+    try:
+        resp = requests.get(f"{API_BASE}{path}", timeout=15)
+        return resp.json()
+    except Exception as e:
+        log.warning(f"[watcher] API GET {path} failed: {e}")
+        return None
+
+
+def _api_post(path: str) -> dict | None:
+    """POST to the FTR API with bartender auth."""
+    try:
+        resp = requests.post(
+            f"{API_BASE}{path}",
+            headers={"x-password": BARTENDER_PASSWORD},
+            timeout=15,
         )
+        return resp.json()
+    except Exception as e:
+        log.warning(f"[watcher] API POST {path} failed: {e}")
+        return None
+
+
+def get_playback_from_api(live: bool = False) -> PlaybackState:
+    """Get playback state from the API. live=True bypasses cache."""
+    endpoint = "/nowplaying/live" if live else "/nowplaying"
+    data = _api_get(endpoint)
+    if not data or not data.get("playing"):
+        return PlaybackState(track=None, progress_ms=0, is_playing=False)
+    track = Track(
+        artist=data.get("artist", "Unknown"),
+        title=data.get("track", "Unknown"),
+        uri=data.get("uri", ""),
+        duration_ms=data.get("duration_ms", 0),
+    )
+    return PlaybackState(
+        track=track,
+        progress_ms=data.get("progress_ms", 0),
+        is_playing=data.get("playing", False),
     )
 
 
-def get_playback(sp: spotipy.Spotify) -> PlaybackState:
-    try:
-        _track("current_playback")
-        pb = sp.current_playback()
-        if not pb or not pb.get("item"):
-            return PlaybackState(track=None, progress_ms=0, is_playing=False)
-        item = pb["item"]
-        artist = item["artists"][0]["name"] if item.get("artists") else "Unknown"
-        track = Track(
-            artist=artist,
-            title=item["name"],
-            uri=item["uri"],
-            duration_ms=item["duration_ms"],
-        )
-        return PlaybackState(
-            track=track,
-            progress_ms=pb.get("progress_ms", 0),
-            is_playing=pb.get("is_playing", False),
-        )
-    except Exception as e:
-        log.warning(f"[spotify] playback fetch failed: {e}")
-        return PlaybackState(track=None, progress_ms=0, is_playing=False)
+def pause(sp=None):
+    """Pause Spotify via API."""
+    result = _api_post("/spotify/pause")
+    if result and result.get("status") == "paused":
+        log.info("[watcher] paused via API")
+    else:
+        log.warning(f"[watcher] pause result: {result}")
 
 
-def pause(sp: spotipy.Spotify):
-    """Pause Spotify playback."""
-    try:
-        _track("pause")
-        sp.pause_playback()
-        log.info("[spotify] paused")
-    except Exception as e:
-        log.warning(f"[spotify] pause failed: {e}")
+def resume(sp=None):
+    """Resume Spotify via API."""
+    result = _api_post("/spotify/resume")
+    if result and result.get("status") == "resumed":
+        log.info("[watcher] resumed via API")
+    else:
+        log.warning(f"[watcher] resume result: {result}")
 
 
-def resume(sp: spotipy.Spotify):
-    """Resume Spotify playback."""
-    try:
-        _track("resume")
-        sp.start_playback()
-        log.info("[spotify] resumed")
-    except Exception as e:
-        log.warning(f"[spotify] resume failed: {e}")
+# Keep get_playback compatible for scheduler imports
+def get_playback(sp=None) -> PlaybackState:
+    return get_playback_from_api(live=False)
+
+
+def get_call_stats() -> dict:
+    """Return empty stats — all calls now go through the API's tracking."""
+    return {
+        "calls_last_1m": 0,
+        "calls_last_10m": 0,
+        "calls_last_1h": 0,
+        "by_endpoint": {},
+        "rate_limit": {
+            "calls_per_min": 0,
+            "limit": 180,
+            "remaining_estimate": 180,
+            "status": "ok",
+            "backing_off": False,
+        },
+    }
 
 
 def watch(on_track_change, stop_event=None):
     """
-    Smart polling: check once to get track + remaining time, sleep until
-    ~15s before end, then rapid-poll every 3s to catch the exact change.
-    Minimizes API calls (~5-10 per song instead of hundreds).
+    Watch for track changes by polling the API.
+    Uses cached /nowplaying most of the time, /nowplaying/live near song end.
+    All Spotify calls go through the API's throttle.
     """
-    sp = _make_sp()
-    state = get_playback(sp)
+    state = get_playback_from_api(live=True)
     current = state.track
-    log.info(f"[spotify] watching — current: {current}")
+    log.info(f"[watcher] watching — current: {current}")
 
     while True:
         if stop_event and stop_event.is_set():
             break
 
-        state = get_playback(sp)
+        # Use cached endpoint for normal polling
+        state = get_playback_from_api(live=False)
 
         if not state.is_playing or not state.track:
-            # Nothing playing — slow poll
             time.sleep(30)
             continue
 
         if state.track != current:
-            # Track changed while we were sleeping
             prev = current
             current = state.track
-            log.info(f"[spotify] track changed: {prev} → {current}")
+            log.info(f"[watcher] track changed: {prev} → {current}")
             try:
-                on_track_change(prev, current, sp)
+                on_track_change(prev, current, None)
             except Exception as e:
-                log.error(f"[spotify] on_track_change error: {e}")
+                log.error(f"[watcher] on_track_change error: {e}")
             continue
 
-        # Sleep until ~5s before song ends, then verify same song before rapid-poll
+        # Sleep based on remaining time
         remaining = state.remaining_s
-        if remaining > 8:
-            sleep_for = remaining - 5
-            log.debug(f"[spotify] {remaining:.0f}s left, sleeping {sleep_for:.0f}s")
-            time.sleep(sleep_for)
 
-            # After waking, verify it's still the same song before burning API calls
-            check = get_playback(sp)
-            if not check.track or check.track != current:
-                # Song changed while sleeping — loop back, top of loop will handle it
-                continue
+        if remaining > 20:
+            # Long way to go — sleep most of it, use cached endpoint
+            sleep_for = remaining - 15
+            log.debug(f"[watcher] {remaining:.0f}s left, sleeping {sleep_for:.0f}s")
+            time.sleep(sleep_for)
+        elif remaining > 5:
+            # Getting close — use live endpoint to get fresh data
+            time.sleep(10)
+            state = get_playback_from_api(live=True)
+            if state.track and state.track != current:
+                prev = current
+                current = state.track
+                log.info(f"[watcher] track changed: {prev} → {current}")
+                try:
+                    on_track_change(prev, current, None)
+                except Exception as e:
+                    log.error(f"[watcher] on_track_change error: {e}")
         else:
-            # Final 5s — poll every 1s to catch the exact change
-            time.sleep(1)
+            # Final seconds — one more live check then wait
+            time.sleep(10)
 
 
 if __name__ == "__main__":
@@ -189,7 +194,5 @@ if __name__ == "__main__":
 
     def on_change(prev, curr, sp):
         print(f"Track change: {prev} → {curr}")
-        state = get_playback(sp)
-        print(f"Remaining: {state.remaining_s:.1f}s")
 
     watch(on_change)
