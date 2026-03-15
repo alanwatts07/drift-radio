@@ -11,16 +11,18 @@ import config
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
-def render(text: str, output_path: str | Path) -> Path:
-    """Render text to speech, save as MP3. Returns output path."""
+def render(text: str, output_path: str | Path, voice: str = None, speed: float = None) -> Path:
+    """Render text to speech, save as MP3. Returns output path.
+    voice: OpenAI voice ID override (default: config.TTS_VOICE).
+    speed: TTS speed override (default: config.TTS_SPEED)."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     response = client.audio.speech.create(
         model="tts-1",
-        voice=config.TTS_VOICE,
+        voice=voice or config.TTS_VOICE,
         input=text,
-        speed=config.TTS_SPEED,
+        speed=speed or config.TTS_SPEED,
     )
     tmp_path = output_path.with_suffix(".mono.mp3")
     response.stream_to_file(str(tmp_path))

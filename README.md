@@ -6,11 +6,12 @@
 [![Spotify](https://img.shields.io/badge/Spotify-Integration-1DB954?style=flat-square&logo=spotify)](https://developer.spotify.com)
 [![Icecast](https://img.shields.io/badge/Icecast-MP3%20192kbps-blue?style=flat-square)](https://icecast.org)
 [![Claude](https://img.shields.io/badge/Claude-AI%20Segments-cc785c?style=flat-square)](https://claude.ai)
+[![n8n](https://img.shields.io/badge/n8n-News%20Roundtable-ff6d5a?style=flat-square&logo=n8n)](https://n8n.io)
 [![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)](LICENSE)
 
 **Live at [radio.ftrai.uk](https://radio.ftrai.uk)**
 
-An AI-powered radio station with live song requests, queue tracking, and AI-generated segments between songs.
+An AI-powered radio station with live song requests, queue tracking, AI-generated segments between songs, and multi-voice news roundtables via n8n + drift agents.
 
 ![FTR Screenshot](screenshot.png)
 
@@ -110,7 +111,23 @@ ffmpeg -f dshow -i audio="Voicemeeter Out B1 (VB-Audio Voicemeeter VAIO)" -ac 2 
 | Track change | 3 facts about artist/track (Claude) | ~40s |
 | :30 past hour | 3 real news stories with web search | ~60s |
 | :00 hour | News + agent takes from Max, Beth, Gerald | ~3-4 min |
+| :50 past hour | **n8n News Roundtable** — multi-voice broadcast (see below) | ~3 min |
 | Random (20-40 min) | Drift agent commentary on a topic | ~45s |
+
+## n8n News Roundtable
+
+An automated multi-voice news broadcast powered by an n8n workflow (`radio_roundtable.json`).
+
+**Flow:** Scheduler (or n8n cron) triggers webhook → n8n fetches 4 Google News RSS feeds (general, tech, ethics, psychology) → categorizes stories → POSTs to `/broadcast/news` → each drift agent gives their take with their own OpenAI TTS voice and mood-based speaking speed → Terence wraps up and sends it back to the music → stitched into one MP3 → pushed to liquidsoap.
+
+| Agent | Domain | Voice |
+|-------|--------|-------|
+| Max | Tech news | echo |
+| Beth | Ethics / moral compass | nova |
+| Private Aye | Psychology / profiling | fable |
+| Terence | Anchor / wrap-up | onyx |
+
+Import `radio_roundtable.json` into n8n to use. Requires the API running on port 8080.
 
 ## Use Cases
 

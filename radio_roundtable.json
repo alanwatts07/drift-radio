@@ -1,0 +1,355 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1040,
+        -944
+      ],
+      "id": "c16b0d07-0c5e-4af7-90c4-f1d5f6cec064",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.xml",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        -1008
+      ],
+      "id": "c6751f69-b273-4cb1-94ad-67671f8f3563",
+      "name": "XML"
+    },
+    {
+      "parameters": {
+        "url": "https://news.google.com/rss/topics/CAAqKggKIiRDQkFTRlFvSUwyMHZNRGRqTVhZU0JXVnVMVlZUR2dKVlV5Z0FQAQ?hl=en-US&gl=US&ceid=US:en",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -832,
+        -864
+      ],
+      "id": "eae12b7d-ef5f-4c01-aa6c-1cf62b5a1629",
+      "name": "tech"
+    },
+    {
+      "parameters": {
+        "url": "https://news.google.com/rss/search?q=psychology+OR+profiling+OR+behavioral+science+OR+human+behavior&hl=en-US&gl=US&ceid=US:en",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -832,
+        -704
+      ],
+      "id": "4f8dd21d-1239-4706-8cf4-eb15a84e5fc2",
+      "name": "psych"
+    },
+    {
+      "parameters": {
+        "url": "https://news.google.com/rss/search?q=artificial+intelligence&hl=en-US",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -816,
+        -1008
+      ],
+      "id": "e2ae91da-e397-493e-a31c-df84c3942db4",
+      "name": "top"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.xml",
+      "typeVersion": 1,
+      "position": [
+        -480,
+        -880
+      ],
+      "id": "6dc7815b-ce28-4bc4-8558-3470cbd1d190",
+      "name": "XML1"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.xml",
+      "typeVersion": 1,
+      "position": [
+        -480,
+        -656
+      ],
+      "id": "1814f2c5-6fae-4954-9bec-fee9ccf86c96",
+      "name": "XML2"
+    },
+    {
+      "parameters": {
+        "url": "https://news.google.com/rss/search?q=ethics+OR+moral+OR+privacy+OR+bias&hl=en-US&gl=US&ceid=US:en              ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -816,
+        -464
+      ],
+      "id": "f9afd8e7-8e89-4172-a269-cc34e1cb9572",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.xml",
+      "typeVersion": 1,
+      "position": [
+        -496,
+        -464
+      ],
+      "id": "6a174e52-293c-44c0-bca1-080cbddfcd4b",
+      "name": "XML3"
+    },
+    {
+      "parameters": {
+        "numberInputs": 4
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -64,
+        -672
+      ],
+      "id": "7f2a4073-b7ad-4a61-8e82-e711bad74579",
+      "name": "Merge",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n  const getArticles = (idx) => {\n    try {\n      return items[idx].json.rss.channel.item;\n    } catch (e) {\n      return [];\n    }\n  };\n\n  const general = getArticles(0);\n  const tech = getArticles(1);\n  const psych = getArticles(2);\n  const ethics = getArticles(3);\n\n  const clean = (t) => t.replace(/\\s*-\\s*[^-]+$/, '');\n\n  return [{\n    json: {\n      headlines: general.slice(0, 3).map(i => clean(i.title)),\n      tech_story: tech[0] ? clean(tech[0].title) + '. ' + (tech[0].source?._ || '') : '',\n      ethics_story: ethics[0] ? clean(ethics[0].title) + '. ' + (ethics[0].source?._ || '') : '',\n      psych_story: psych[0] ? clean(psych[0].title) + '. ' + (psych[0].source?._ || '') : '',\n    }\n  }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        -672
+      ],
+      "id": "2568a0c1-7127-4c20-886a-c2810a461284",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8080/broadcast/news",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Password",
+              "value": "ftr2024"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "headlines",
+              "value": "={{ $json.headlines }}"
+            },
+            {
+              "name": "tech_story",
+              "value": "={{ $json.tech_story }}"
+            },
+            {
+              "name": "ethics_story",
+              "value": "={{ $json.ethics_story }}"
+            },
+            {
+              "name": "psych_story",
+              "value": "={{ $json.psych_story }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        352,
+        -672
+      ],
+      "id": "e07e446a-0558-4d68-adf8-77a4cc2ed637",
+      "name": "HTTP Request1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "top",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "psych",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "tech",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "XML": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "top": {
+      "main": [
+        [
+          {
+            "node": "XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "tech": {
+      "main": [
+        [
+          {
+            "node": "XML1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "psych": {
+      "main": [
+        [
+          {
+            "node": "XML2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "XML3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "XML1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "XML2": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "XML3": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "54ac5658-07b6-4ce9-b1fd-e8d2c7c27f6d",
+  "meta": {
+    "instanceId": "d9d032ff0713c6f1e20947ff0eb93b8086566aea0d88b7fae117d414fd465595"
+  },
+  "id": "CODTMPCV4Du21hDY",
+  "tags": []
+}

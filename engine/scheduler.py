@@ -238,7 +238,19 @@ def check_schedule():
 
 
 def _generate_news():
-    """Generate news and add to pending segments."""
+    """Trigger n8n news roundtable webhook. n8n handles RSS → agents → broadcast → liquidsoap.
+    Falls back to old news_break() if n8n webhook fails."""
+    try:
+        log.info(f"[scheduler] triggering n8n news roundtable: {config.N8N_NEWS_WEBHOOK}")
+        resp = requests.get(config.N8N_NEWS_WEBHOOK, timeout=10)
+        if resp.ok:
+            log.info("[scheduler] n8n webhook triggered successfully")
+            return
+        log.warning(f"[scheduler] n8n webhook returned {resp.status_code}, falling back to news_break()")
+    except Exception as e:
+        log.warning(f"[scheduler] n8n webhook failed ({e}), falling back to news_break()")
+
+    # Fallback: old-style single-voice news break
     try:
         path = segment_generator.news_break()
         if path and Path(path).exists():

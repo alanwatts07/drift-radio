@@ -211,6 +211,14 @@ class AIAnnouncement(BaseModel):
     prompt: str
     now: bool = False
 
+class NewsRoundtableRequest(BaseModel):
+    headlines: list[str]        # 2-3 general news headlines
+    tech_story: str             # tech story for Max
+    ethics_story: str           # ethics story for Beth
+    psych_story: str            # psychology/profiling story for Earl Von Schnuff
+    now: bool = False           # True = interrupt, False = queue after current song
+
+
 class QueueRequest(BaseModel):
     uri: str
 
@@ -309,6 +317,41 @@ def announce_ai(body: AIAnnouncement, _=Depends(require_bartender)):
     t.start()
 
     return {"status": "generating — Claude + TTS in background", "prompt": body.prompt}
+
+
+# --- News roundtable (n8n webhook target) ---
+
+def _generate_roundtable(headlines, tech_story, ethics_story, psych_story, priority):
+    """Generate multi-voice news roundtable and push to liquidsoap."""
+    import traceback
+    try:
+        import segment_generator
+        path = segment_generator.news_roundtable(headlines, tech_story, ethics_story, psych_story)
+        if path and Path(path).exists():
+            liquidsoap_queue.push_segment(path, priority=True)
+            log.info(f"[roundtable] broadcast delivered: {path}")
+    except Exception as e:
+        log.error(f"[roundtable] failed: {e}\n{traceback.format_exc()}")
+
+
+@app.post("/broadcast/news")
+def broadcast_news(body: NewsRoundtableRequest, _=Depends(require_bartender)):
+    """n8n calls this with categorized news stories. Generates a multi-voice
+    roundtable broadcast with each drift agent using their own TTS voice."""
+    if not body.headlines and not body.tech_story and not body.ethics_story and not body.psych_story:
+        raise HTTPException(status_code=400, detail="At least one story required")
+
+    log.info(f"[roundtable] received: {len(body.headlines)} headlines, "
+             f"tech={bool(body.tech_story)}, ethics={bool(body.ethics_story)}, psych={bool(body.psych_story)}")
+
+    t = threading.Thread(
+        target=_generate_roundtable,
+        args=(body.headlines, body.tech_story, body.ethics_story, body.psych_story, body.now),
+    )
+    t.start()
+
+    return {"status": "generating roundtable broadcast in background",
+            "segments": ["anchor"] + [a for a, s in [("max", body.tech_story), ("beth", body.ethics_story), ("private_aye", body.psych_story)] if s]}
 
 
 # --- Spotify endpoints ---
