@@ -168,6 +168,25 @@ def news_roundtable(headlines: list[str], tech_story: str, ethics_story: str, ps
     log.info("[gen] news roundtable starting")
     parts: list[Path] = []
 
+    # 0. Terence intro — opens the news segment
+    headline_text = "\n".join(f"- {h}" for h in headlines)
+    intro_prompt = (
+        "You are Terence, the anchor for FTR — Fun Time Radio. You're opening "
+        "the news roundtable. Introduce the segment briefly — something like "
+        "'This is FTR news, here's what's happening' — then tease the headlines. "
+        "Dry, deadpan, no hype. Keep it under 15 seconds. "
+        "Output only the spoken script.\n\n"
+        f"Headlines:\n{headline_text}"
+    )
+    try:
+        intro_script = _claude(intro_prompt, max_turns=1)
+        intro_path = _segment_path("roundtable_intro")
+        tts_renderer.render(intro_script, intro_path, voice=config.AGENT_VOICES["anchor"])
+        parts.append(intro_path)
+        log.info("[gen] terence intro done")
+    except Exception as e:
+        log.error(f"[gen] terence intro failed: {e}")
+
     # 1. Agent segments — each gets their story, their voice
     agent_assignments = [
         ("max", tech_story, "tech"),

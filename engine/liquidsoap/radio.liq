@@ -18,8 +18,10 @@ segments = request.queue(id="segments")
 # Spotify passthrough via BUTT → harbor input
 spotify = input.harbor(
   "spotify",
-  port=8005
+  port=8005,
+  buffer=1.0
 )
+spotify = buffer(buffer=0.5, max=10.0, spotify)
 
 # Local music fallback
 local = playlist(
@@ -50,6 +52,7 @@ radio = fallback(
 # Urgent cuts in immediately over everything
 radio = fallback(
   track_sensitive=false,
+  transition_length=2.0,
   [
     urgent,
     radio
@@ -61,7 +64,7 @@ radio = mksafe(radio)
 
 # --- Output to Icecast ---
 output.icecast(
-  %mp3(bitrate=192),
+  %mp3(bitrate=128),
   host="icecast",
   port=8000,
   password="hackme",

@@ -27,12 +27,12 @@ def render(text: str, output_path: str | Path, voice: str = None, speed: float =
     tmp_path = output_path.with_suffix(".mono.mp3")
     response.stream_to_file(str(tmp_path))
 
-    # Convert mono → stereo, normalize loudness to broadcast level (-14 LUFS)
+    # Convert mono → stereo, normalize loudness, trim trailing silence
     subprocess.run(
         [
             "ffmpeg", "-y", "-i", str(tmp_path),
             "-ac", "2",
-            "-af", "loudnorm=I=-14:TP=-1.5:LRA=11",
+            "-af", "loudnorm=I=-14:TP=-1.5:LRA=11,silenceremove=stop_periods=-1:stop_duration=0.5:stop_threshold=-35dB",
             "-b:a", "192k",
             str(output_path),
         ],

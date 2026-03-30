@@ -190,15 +190,16 @@ def spotify_put(path: str, json_data: dict = None) -> dict:
     _track_call(path)
     token = _refresh_spotify_token()
     resp = requests.put(f"{SPOTIFY_API}{path}", headers={"Authorization": f"Bearer {token}"}, json=json_data, timeout=10)
-    if resp.status_code in (200, 204) and (not resp.text or not resp.text.strip()):
-        return {}
-    if resp.status_code == 204:
-        return {}
     if resp.status_code == 429:
         _handle_429_response(resp, path)
         return None
     resp.raise_for_status()
-    return resp.json()
+    if not resp.text or not resp.text.strip():
+        return {}
+    try:
+        return resp.json()
+    except Exception:
+        return {}
 
 
 # --- Models ---

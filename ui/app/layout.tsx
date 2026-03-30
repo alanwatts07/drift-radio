@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FTR — Fun Time Radio",
+  title: "FTR — Fun Time Radio & Drift News",
   description: "Live radio stream with song requests",
 };
 

@@ -111,8 +111,10 @@ def _play_segment(segment_path: Path):
     time.sleep(0.3)  # let harbor go silent
 
     liquidsoap_queue.push_segment(segment_path, priority=True)
-    # Resume Spotify ~7s before segment ends — accounts for TTS trailing
-    # silence + Spotify resume latency. Slightly early beats dead air.
+    # Resume Spotify early — need time for: Spotify API resume (~2s) +
+    # VoiceMeeter/ffmpeg pipe restart (~2s) + harbor 1s buffer refill.
+    # The segment is still playing on the urgent queue during this time,
+    # so listeners hear TTS while Spotify silently rebuffers underneath.
     time.sleep(max(0, duration - 7))
 
     spotify_watcher.resume()
@@ -188,9 +190,21 @@ def on_track_change(prev, curr, sp=None):
 _fact_generated_at_20 = False
 _fact_generated_at_40 = False
 _news_generated_this_hour = False
+_schedule_lock = threading.Lock()
 
 
 def check_schedule():
+    global _song_facts_this_hour, _news_this_hour
+    global _fact_generated_at_20, _fact_generated_at_40, _news_generated_this_hour
+
+    if not _schedule_lock.acquire(blocking=False):
+        return  # another check_schedule is already running
+    try:
+        _check_schedule_inner()
+    finally:
+        _schedule_lock.release()
+
+def _check_schedule_inner():
     global _song_facts_this_hour, _news_this_hour
     global _fact_generated_at_20, _fact_generated_at_40, _news_generated_this_hour
     _reset_hourly_counters()

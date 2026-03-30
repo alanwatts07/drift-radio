@@ -83,7 +83,7 @@ export default function Home() {
     <div className="min-h-screen flex flex-col items-center px-4 py-8 max-w-md mx-auto gap-6">
       <header className="flex items-center justify-between w-full">
         <h1 className="text-xl font-bold tracking-tight">
-          <span style={{ color: "var(--accent)" }}>FTR</span> — Fun Time Radio
+          <span style={{ color: "var(--accent)" }}>FTR</span> — Fun Time Radio & Drift News
         </h1>
         <div className="flex items-center gap-3">
           <span className="text-xs px-2 py-0.5 rounded-full" style={{
